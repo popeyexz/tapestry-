@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Generator, List, Optional
 
-DEFAULT_DB_PATH = Path.home() / ".tapestry" / "memory.db"
+def _default_db_path() -> Path:
+    return Path.home() / ".tapestry" / "memory.db"
+
+
+DEFAULT_DB_PATH = _default_db_path()  # kept for backwards compatibility
 
 
 @dataclass
@@ -56,8 +60,8 @@ class MemoryStore:
         entries = store.search("PR #42")
     """
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        self.db_path = Path(db_path) if db_path is not None else _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -257,3 +261,64 @@ class MemoryStore:
         with self._connect() as conn:
             cur = conn.execute(sql, params)
             return cur.rowcount
+
+    # ------------------------------------------------------------------
+    # Portability — export/import the whole memory so it follows you
+    # across machines and apps.
+    # ------------------------------------------------------------------
+
+    def export_entries(self) -> List[dict]:
+        """Return every memory entry as a list of plain dicts (JSON-safe)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM memory ORDER BY timestamp ASC"
+            ).fetchall()
+        out: List[dict] = []
+        for row in rows:
+            d = dict(row)
+            d["metadata"] = json.loads(d.get("metadata") or "{}")
+            out.append(d)
+        return out
+
+    def export_to_file(self, path: Path) -> int:
+        """Write all memories to a JSON file. Returns number of entries."""
+        entries = self.export_entries()
+        Path(path).write_text(json.dumps(entries, indent=2))
+        return len(entries)
+
+    def import_entries(self, entries: List[dict]) -> int:
+        """Insert entries from another store, skipping duplicates by id."""
+        added = 0
+        with self._connect() as conn:
+            for d in entries:
+                meta = d.get("metadata", {})
+                if isinstance(meta, dict):
+                    meta = json.dumps(meta)
+                row = {
+                    "id": d.get("id") or str(uuid.uuid4()),
+                    "timestamp": d.get("timestamp")
+                    or datetime.now(timezone.utc).isoformat(),
+                    "source": d.get("source", "tapestry"),
+                    "kind": d.get("kind", "message"),
+                    "role": d.get("role", "system"),
+                    "content": d.get("content", ""),
+                    "metadata": meta,
+                }
+                cur = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO memory
+                        (id, timestamp, source, kind, role, content, metadata)
+                    VALUES
+                        (:id, :timestamp, :source, :kind, :role, :content, :metadata)
+                    """,
+                    row,
+                )
+                added += cur.rowcount
+        return added
+
+    def import_from_file(self, path: Path) -> int:
+        """Read a JSON export file and merge into this store."""
+        data = json.loads(Path(path).read_text())
+        if not isinstance(data, list):
+            raise ValueError("import file must contain a JSON array")
+        return self.import_entries(data)
