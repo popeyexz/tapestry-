@@ -12,7 +12,7 @@ from tapestry.cli import main
 
 @pytest.fixture()
 def runner():
-    return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 class TestCLIRoot:

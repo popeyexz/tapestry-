@@ -7,7 +7,9 @@ MemoryStore so the agent can recall them later.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Type
+import threading
+import time
+from typing import Callable, Dict, List, Optional, Type
 
 from tapestry.core.memory import MemoryStore
 from tapestry.integrations.base import BaseIntegration
@@ -28,6 +30,8 @@ class IntegrationManager:
     def __init__(self, memory: Optional[MemoryStore] = None) -> None:
         self.memory = memory or MemoryStore()
         self._registry: Dict[str, BaseIntegration] = {}
+        self._daemon_stop: Optional[threading.Event] = None
+        self._daemon_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Registration
@@ -104,3 +108,47 @@ class IntegrationManager:
                     results[integration.name] = 0
                     integration.status = f"sync error: {exc}"
         return results
+
+    # ------------------------------------------------------------------
+    # Daemon — keep memory updated continuously in the background
+    # ------------------------------------------------------------------
+
+    def run_daemon(
+        self,
+        interval: float = 30.0,
+        on_sync: Optional[Callable[[Dict[str, int]], None]] = None,
+    ) -> threading.Event:
+        """Start a background thread that calls :meth:`sync_all` periodically.
+
+        Returns a :class:`threading.Event`; set it (or call
+        :meth:`stop_daemon`) to stop the loop.
+        """
+        if self._daemon_thread and self._daemon_thread.is_alive():
+            return self._daemon_stop  # already running
+
+        stop = threading.Event()
+        self._daemon_stop = stop
+
+        def _loop() -> None:
+            while not stop.is_set():
+                results = self.sync_all()
+                if on_sync:
+                    try:
+                        on_sync(results)
+                    except Exception:
+                        pass
+                stop.wait(interval)
+
+        thread = threading.Thread(target=_loop, daemon=True, name="tapestry-daemon")
+        thread.start()
+        self._daemon_thread = thread
+        return stop
+
+    def stop_daemon(self) -> None:
+        """Signal the daemon loop (if any) to stop and wait for it."""
+        if self._daemon_stop:
+            self._daemon_stop.set()
+        if self._daemon_thread:
+            self._daemon_thread.join(timeout=2.0)
+        self._daemon_stop = None
+        self._daemon_thread = None

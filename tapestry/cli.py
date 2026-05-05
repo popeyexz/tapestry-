@@ -6,9 +6,13 @@ Commands:
   tapestry memory list  Show recent memories
   tapestry memory search <query>
   tapestry memory stats
+  tapestry memory export <file>
+  tapestry memory import <file>
   tapestry memory clear [--source SOURCE]
   tapestry connect      Register and start a platform integration
   tapestry sync         Pull latest events from all connected platforms
+  tapestry serve        Run the HTTP API so any app can push memories
+  tapestry daemon       Background process that auto-syncs every platform
   tapestry story        Print your cross-platform narrative
 """
 
@@ -220,6 +224,26 @@ def memory_add_fact(ctx: click.Context, fact: str, source: str) -> None:
     console.print(f"[green]✓ Fact stored:[/green] {entry.content}")
 
 
+@memory.command("export")
+@click.argument("path", type=click.Path(dir_okay=False, writable=True))
+@click.pass_context
+def memory_export(ctx: click.Context, path: str) -> None:
+    """Export the entire memory store to a JSON file (portable across devices)."""
+    store: MemoryStore = ctx.obj["agent"].memory
+    n = store.export_to_file(Path(path))
+    console.print(f"[green]✓ Exported {n} memories to {path}[/green]")
+
+
+@memory.command("import")
+@click.argument("path", type=click.Path(dir_okay=False, exists=True))
+@click.pass_context
+def memory_import(ctx: click.Context, path: str) -> None:
+    """Import memories from a JSON file (merge — duplicates are skipped)."""
+    store: MemoryStore = ctx.obj["agent"].memory
+    n = store.import_from_file(Path(path))
+    console.print(f"[green]✓ Imported {n} new memories from {path}[/green]")
+
+
 @memory.command("clear")
 @click.option("--source", default=None, help="Only clear memories from this platform.")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
@@ -239,8 +263,8 @@ def memory_clear(ctx: click.Context, source: Optional[str], yes: bool) -> None:
 # ---------------------------------------------------------------------------
 
 @main.command()
-@click.argument("platform", type=click.Choice(["terminal", "filesystem", "github"]))
-@click.option("--token", default=None, help="API token (for github).")
+@click.argument("platform", type=click.Choice(["terminal", "filesystem", "github", "slack"]))
+@click.option("--token", default=None, help="API token (github/slack).")
 @click.option("--path", "watch_path", default=None, help="Path (for filesystem).")
 @click.pass_context
 def connect(
@@ -253,6 +277,7 @@ def connect(
     from tapestry.integrations.terminal import TerminalIntegration
     from tapestry.integrations.filesystem import FilesystemIntegration
     from tapestry.integrations.github import GitHubIntegration
+    from tapestry.integrations.slack import SlackIntegration
 
     agent: Agent = ctx.obj["agent"]
     manager = IntegrationManager(memory=agent.memory)
@@ -261,6 +286,7 @@ def connect(
         "terminal": (TerminalIntegration, {}),
         "filesystem": (FilesystemIntegration, {"watch_path": watch_path}),
         "github": (GitHubIntegration, {"token": token}),
+        "slack": (SlackIntegration, {"token": token}),
     }
     cls, kwargs = cls_map[platform]
     integration = manager.register(cls, **{k: v for k, v in kwargs.items() if v})
@@ -281,18 +307,25 @@ def connect(
 
 @main.command()
 @click.option("--github-token", envvar="TAPESTRY_GITHUB_TOKEN")
+@click.option("--slack-token", envvar="TAPESTRY_SLACK_TOKEN")
 @click.pass_context
-def sync(ctx: click.Context, github_token: Optional[str]) -> None:
+def sync(
+    ctx: click.Context,
+    github_token: Optional[str],
+    slack_token: Optional[str],
+) -> None:
     """Pull latest events from all detected integrations."""
     from tapestry.integrations.terminal import TerminalIntegration
-    from tapestry.integrations.filesystem import FilesystemIntegration
     from tapestry.integrations.github import GitHubIntegration
+    from tapestry.integrations.slack import SlackIntegration
 
     agent: Agent = ctx.obj["agent"]
     manager = IntegrationManager(memory=agent.memory)
     manager.register(TerminalIntegration)
     if github_token:
         manager.register(GitHubIntegration, token=github_token)
+    if slack_token:
+        manager.register(SlackIntegration, token=slack_token)
     manager.start_all()
     results = manager.sync_all()
     total = sum(results.values())
@@ -300,6 +333,88 @@ def sync(ctx: click.Context, github_token: Optional[str]) -> None:
     for name, n in results.items():
         console.print(f"  {_source_icon(name)} {name}: {n} new")
     manager.stop_all()
+
+
+# ---------------------------------------------------------------------------
+# serve — HTTP API so any app/device can push to the same memory
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--token", default=None, envvar="TAPESTRY_API_TOKEN",
+              help="Optional bearer token; required on every request when set.")
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int, token: Optional[str]) -> None:
+    """Run the Tapestry HTTP API so external apps can read/write memory."""
+    from tapestry.core.server import serve_forever
+
+    agent: Agent = ctx.obj["agent"]
+    auth = " (token required)" if token else ""
+    console.print(
+        f"[bold magenta]🧵 Tapestry API[/bold magenta] listening on "
+        f"[cyan]http://{host}:{port}[/cyan]{auth}"
+    )
+    console.print("[dim]Ctrl+C to stop.[/dim]")
+    serve_forever(agent.memory, host=host, port=port, token=token)
+
+
+# ---------------------------------------------------------------------------
+# daemon — keep memory updated continuously
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--interval", default=30.0, show_default=True, type=float,
+              help="Seconds between syncs.")
+@click.option("--github-token", envvar="TAPESTRY_GITHUB_TOKEN")
+@click.option("--slack-token", envvar="TAPESTRY_SLACK_TOKEN")
+@click.option("--watch", default=None, metavar="PATH",
+              help="Directory to watch with the filesystem integration.")
+@click.pass_context
+def daemon(
+    ctx: click.Context,
+    interval: float,
+    github_token: Optional[str],
+    slack_token: Optional[str],
+    watch: Optional[str],
+) -> None:
+    """Run a background loop that periodically syncs every platform."""
+    import time
+
+    from tapestry.integrations.terminal import TerminalIntegration
+    from tapestry.integrations.filesystem import FilesystemIntegration
+    from tapestry.integrations.github import GitHubIntegration
+    from tapestry.integrations.slack import SlackIntegration
+
+    agent: Agent = ctx.obj["agent"]
+    manager = IntegrationManager(memory=agent.memory)
+    manager.register(TerminalIntegration)
+    if watch:
+        manager.register(FilesystemIntegration, watch_path=watch)
+    if github_token:
+        manager.register(GitHubIntegration, token=github_token)
+    if slack_token:
+        manager.register(SlackIntegration, token=slack_token)
+    manager.start_all()
+
+    def _on_sync(results):
+        total = sum(results.values())
+        if total:
+            console.print(f"[dim]+{total} new events across {len(results)} platform(s)[/dim]")
+
+    console.print(
+        f"[bold magenta]🧵 Tapestry daemon[/bold magenta] running "
+        f"(every {interval:g}s). Ctrl+C to stop."
+    )
+    stop = manager.run_daemon(interval=interval, on_sync=_on_sync)
+    try:
+        while not stop.is_set():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        console.print("\n[dim]Stopping daemon…[/dim]")
+    finally:
+        manager.stop_daemon()
+        manager.stop_all()
 
 
 # ---------------------------------------------------------------------------
