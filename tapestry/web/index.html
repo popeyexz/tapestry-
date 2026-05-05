@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>🧵 Tapestry — Unified AI Memory</title>
+<style>
+  :root {
+    --bg: #0e0b16; --bg2: #1a1426; --fg: #f4ecff; --muted: #9b8fb0;
+    --accent: #c084fc; --accent2: #f472b6; --line: #2a2240; --ok: #4ade80;
+    --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, sans-serif; background: var(--bg); color: var(--fg);
+    height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(90deg, var(--bg2), var(--bg));
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .badge { font-size: 12px; color: var(--muted); }
+  main {
+    display: grid; grid-template-columns: 280px 1fr 320px;
+    height: calc(100vh - 53px);
+  }
+  aside { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px; }
+  aside.right { border-right: none; border-left: 1px solid var(--line); }
+  aside h2 { font-size: 12px; text-transform: uppercase; color: var(--muted);
+    letter-spacing: 1px; margin: 0 0 10px; }
+  .platform {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    border-radius: 8px; font-size: 14px;
+  }
+  .platform .dot { width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted); flex-shrink: 0; }
+  .platform.connected .dot { background: var(--ok); }
+  .platform.error .dot { background: var(--err); }
+  .platform .meta { color: var(--muted); font-size: 12px; }
+  .stats { font-size: 13px; color: var(--muted); margin-top: 16px; }
+  .stats .row { display: flex; justify-content: space-between; padding: 4px 0; }
+  #chat {
+    display: flex; flex-direction: column; height: 100%; min-width: 0;
+  }
+  #messages {
+    flex: 1; overflow-y: auto; padding: 24px;
+  }
+  .msg { margin: 0 0 18px; max-width: 70ch; }
+  .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .msg .body { white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; }
+  .msg.user .body { color: #cce6ff; }
+  .msg.assistant .body { color: var(--fg); }
+  form#composer {
+    display: flex; gap: 8px; padding: 16px 20px;
+    border-top: 1px solid var(--line); background: var(--bg2);
+  }
+  #composer input {
+    flex: 1; background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+    padding: 12px 14px; border-radius: 10px; font-size: 14px; outline: none;
+  }
+  #composer input:focus { border-color: var(--accent); }
+  #composer button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border: none; color: white; padding: 0 20px; border-radius: 10px;
+    cursor: pointer; font-weight: 600;
+  }
+  #composer button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .memory-item {
+    padding: 8px 10px; border-radius: 6px; font-size: 12px;
+    border-left: 2px solid var(--line); margin-bottom: 6px;
+  }
+  .memory-item .src { color: var(--accent); font-weight: 600; }
+  .memory-item .ts { color: var(--muted); float: right; }
+  .memory-item .content { color: var(--fg); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; }
+
+  /* login page */
+  #login {
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; background: radial-gradient(ellipse at top, var(--bg2), var(--bg));
+  }
+  #login .card {
+    background: var(--bg2); padding: 32px; border-radius: 16px;
+    border: 1px solid var(--line); width: 360px;
+  }
+  #login h1 { margin: 0 0 6px; font-size: 28px; }
+  #login h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #login p { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  #login input {
+    width: 100%; padding: 12px; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
+    outline: none; margin-bottom: 12px;
+  }
+  #login input:focus { border-color: var(--accent); }
+  #login button {
+    width: 100%; padding: 12px; background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border: none; color: white; border-radius: 8px; font-size: 14px;
+    font-weight: 600; cursor: pointer;
+  }
+  #login .err { color: var(--err); font-size: 13px; min-height: 18px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <!-- LOGIN -->
+  <div id="login" class="hidden">
+    <form class="card" onsubmit="return doLogin(event)">
+      <h1>🧵 <span>Tapestry</span></h1>
+      <p>Your unified AI memory across every platform.</p>
+      <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus />
+      <button type="submit">Sign in</button>
+      <div class="err" id="login-err"></div>
+    </form>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hidden">
+    <header>
+      <h1>🧵 <span>Tapestry</span></h1>
+      <div class="badge" id="memory-count">…</div>
+    </header>
+    <main>
+      <aside>
+        <h2>🔌 Platforms</h2>
+        <div id="platforms"></div>
+        <div class="stats" id="stats"></div>
+      </aside>
+      <section id="chat">
+        <div id="messages"></div>
+        <form id="composer" onsubmit="return sendMessage(event)">
+          <input id="input" placeholder="Ask Tapestry anything — it remembers everything." autocomplete="off" />
+          <button id="send" type="submit">Send</button>
+        </form>
+      </section>
+      <aside class="right">
+        <h2>🧠 Recent Memories</h2>
+        <div id="memories"></div>
+      </aside>
+    </main>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function api(path, opts) {
+  const res = await fetch(path, { credentials: "same-origin", ...opts });
+  if (res.status === 401) { showLogin(); throw new Error("unauthorized"); }
+  if (!res.ok) throw new Error(await res.text());
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : res.text();
+}
+
+function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
+function showApp()   { $("login").classList.add("hidden"); $("app").classList.remove("hidden"); }
+
+async function doLogin(e) {
+  e.preventDefault();
+  $("login-err").textContent = "";
+  const pw = $("pw").value;
+  const res = await fetch("/login", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (!res.ok) { $("login-err").textContent = "Wrong password."; return false; }
+  showApp(); init();
+  return false;
+}
+
+function fmtTs(iso) {
+  try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+  catch (_) { return ""; }
+}
+
+function appendMessage(role, content) {
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.innerHTML = `<div class="who">${role === "user" ? "You" : "🧵 Tapestry"}</div><div class="body"></div>`;
+  div.querySelector(".body").textContent = content;
+  $("messages").appendChild(div);
+  $("messages").scrollTop = $("messages").scrollHeight;
+}
+
+async function sendMessage(e) {
+  e.preventDefault();
+  const input = $("input");
+  const text = input.value.trim();
+  if (!text) return false;
+  input.value = "";
+  $("send").disabled = true;
+  appendMessage("user", text);
+  try {
+    const res = await api("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    appendMessage("assistant", res.reply);
+  } catch (err) {
+    appendMessage("assistant", "(error: " + err.message + ")");
+  }
+  $("send").disabled = false;
+  refresh();
+  return false;
+}
+
+async function refresh() {
+  try {
+    const stats = await api("/stats");
+    $("memory-count").textContent = `${stats.total} memories`;
+    const statsBox = $("stats");
+    statsBox.innerHTML = "<h2>By type</h2>";
+    for (const [k, n] of Object.entries(stats.by_kind || {})) {
+      statsBox.innerHTML += `<div class="row"><span>${k}</span><span>${n}</span></div>`;
+    }
+
+    const platforms = await api("/platforms");
+    const pdiv = $("platforms"); pdiv.innerHTML = "";
+    for (const p of platforms) {
+      const cls = p.connected ? "connected" : (p.status.startsWith("error") ? "error" : "");
+      const row = document.createElement("div");
+      row.className = "platform " + cls;
+      row.innerHTML = `<span class="dot"></span><div><div>${p.name}</div><div class="meta">${p.status}</div></div>`;
+      pdiv.appendChild(row);
+    }
+
+    const recent = await api("/memory?limit=15");
+    const mdiv = $("memories"); mdiv.innerHTML = "";
+    for (const e of recent) {
+      const row = document.createElement("div");
+      row.className = "memory-item";
+      row.innerHTML = `<span class="src">${e.source}</span>
+        <span class="ts">${fmtTs(e.timestamp)}</span>
+        <div class="content">${e.content.slice(0, 140).replace(/</g, "&lt;")}</div>`;
+      mdiv.appendChild(row);
+    }
+  } catch (_) {}
+}
+
+async function init() {
+  $("messages").innerHTML = "";
+  try {
+    const greet = await api("/greet");
+    appendMessage("assistant", greet.greeting);
+  } catch (_) {}
+  refresh();
+  setInterval(refresh, 5000);
+}
+
+(async function start() {
+  try {
+    await api("/health");
+    showApp(); init();
+  } catch (_) { showLogin(); }
+})();
+</script>
+</body>
+</html>

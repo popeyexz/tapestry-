@@ -21,6 +21,8 @@ intelligent conversation that knows your full story.
   watcher, GitHub activity, Slack messages, with more adapters easy to add
 - **Rich TUI** — a terminal-based UI showing connected platforms and your chat
   with the agent side by side
+- **Web app** — `tapestry web` launches a browser UI (chat, platform status,
+  live memory feed) backed by the same store as the CLI
 - **HTTP API** — `tapestry serve` exposes the memory so any app on any device
   can push or read entries; the same memory follows you everywhere
 - **Background daemon** — `tapestry daemon` keeps every platform synced
@@ -51,6 +53,19 @@ pip install -e .
 ```bash
 tapestry chat
 ```
+
+### Launch the web app (browser UI)
+
+```bash
+tapestry web
+# auto-syncs every platform every 30s and opens your browser:
+tapestry web --watch ~/projects --github-token ghp_… --slack-token xoxb-…
+# require a login password:
+TAPESTRY_WEB_PASSWORD=hunter2 tapestry web
+```
+
+The web app is a single-page interface with chat, platform status, and a
+live memory feed — same store, same agent, just visible in any browser.
 
 ### Launch the full TUI
 
@@ -135,6 +150,8 @@ tapestry/
     slack.py         # Slack channel messages
   ui/
     app.py           # Rich-based TUI
+  web/
+    index.html       # Single-page browser web app
   cli.py             # Click CLI entry point
 ```
 
@@ -148,6 +165,7 @@ tapestry/
 | `TAPESTRY_GITHUB_TOKEN` | GitHub Personal Access Token for the GitHub integration |
 | `TAPESTRY_SLACK_TOKEN` | Slack Bot User OAuth Token (`xoxb-…`) for the Slack integration |
 | `TAPESTRY_API_TOKEN` | Optional bearer token enforced by `tapestry serve` |
+| `TAPESTRY_WEB_PASSWORD` | Optional login password for the web app |
 
 ---
 

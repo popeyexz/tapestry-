@@ -25,5 +25,8 @@ tapestry = "tapestry.cli:main"
 where = ["."]
 include = ["tapestry*"]
 
+[tool.setuptools.package-data]
+tapestry = ["web/*.html", "web/*.css", "web/*.js"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,6 +3,7 @@
 Commands:
   tapestry chat         Interactive conversation with the agent
   tapestry ui           Full TUI (platforms + chat panels)
+  tapestry web          Launch the browser-based web app
   tapestry memory list  Show recent memories
   tapestry memory search <query>
   tapestry memory stats
@@ -344,19 +345,132 @@ def sync(
 @click.option("--port", default=8765, show_default=True, type=int)
 @click.option("--token", default=None, envvar="TAPESTRY_API_TOKEN",
               help="Optional bearer token; required on every request when set.")
+@click.option("--password", default=None, envvar="TAPESTRY_WEB_PASSWORD",
+              help="Optional password for the web UI login.")
 @click.pass_context
-def serve(ctx: click.Context, host: str, port: int, token: Optional[str]) -> None:
-    """Run the Tapestry HTTP API so external apps can read/write memory."""
+def serve(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    token: Optional[str],
+    password: Optional[str],
+) -> None:
+    """Run the Tapestry HTTP API + web UI so external apps and browsers can
+    read/write the same memory store."""
     from tapestry.core.server import serve_forever
 
     agent: Agent = ctx.obj["agent"]
-    auth = " (token required)" if token else ""
+    auth = []
+    if token: auth.append("token")
+    if password: auth.append("password")
+    auth_msg = f" (auth: {', '.join(auth)})" if auth else " (open access)"
     console.print(
-        f"[bold magenta]🧵 Tapestry API[/bold magenta] listening on "
-        f"[cyan]http://{host}:{port}[/cyan]{auth}"
+        f"[bold magenta]🧵 Tapestry[/bold magenta] listening on "
+        f"[cyan]http://{host}:{port}[/cyan]{auth_msg}"
     )
     console.print("[dim]Ctrl+C to stop.[/dim]")
-    serve_forever(agent.memory, host=host, port=port, token=token)
+    serve_forever(
+        agent.memory,
+        host=host,
+        port=port,
+        token=token,
+        password=password,
+        agent=agent,
+    )
+
+
+# ---------------------------------------------------------------------------
+# web — full browser app: starts the server, opens the browser
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--password", default=None, envvar="TAPESTRY_WEB_PASSWORD",
+              help="Login password (set TAPESTRY_WEB_PASSWORD to require auth).")
+@click.option("--no-browser", is_flag=True, help="Don't auto-open the browser.")
+@click.option("--github-token", envvar="TAPESTRY_GITHUB_TOKEN")
+@click.option("--slack-token", envvar="TAPESTRY_SLACK_TOKEN")
+@click.option("--watch", default=None, metavar="PATH",
+              help="Directory to watch with the filesystem integration.")
+@click.option("--daemon-interval", default=30.0, show_default=True, type=float,
+              help="Auto-sync interval in seconds (0 to disable).")
+@click.pass_context
+def web(
+    ctx: click.Context,
+    host: str,
+    port: int,
+    password: Optional[str],
+    no_browser: bool,
+    github_token: Optional[str],
+    slack_token: Optional[str],
+    watch: Optional[str],
+    daemon_interval: float,
+) -> None:
+    """Launch Tapestry as a browser-based web app.
+
+    Opens your default browser to a single-page UI where you can chat, see
+    every connected platform, and browse your memory feed in real time.
+    """
+    import threading
+    import webbrowser
+
+    from tapestry.core.server import serve
+    from tapestry.integrations.terminal import TerminalIntegration
+    from tapestry.integrations.filesystem import FilesystemIntegration
+    from tapestry.integrations.github import GitHubIntegration
+    from tapestry.integrations.slack import SlackIntegration
+
+    agent: Agent = ctx.obj["agent"]
+    manager = IntegrationManager(memory=agent.memory)
+    manager.register(TerminalIntegration)
+    if watch:
+        manager.register(FilesystemIntegration, watch_path=watch)
+    if github_token:
+        manager.register(GitHubIntegration, token=github_token)
+    if slack_token:
+        manager.register(SlackIntegration, token=slack_token)
+    manager.start_all()
+
+    if daemon_interval > 0:
+        manager.run_daemon(interval=daemon_interval)
+
+    httpd = serve(
+        agent.memory,
+        host=host,
+        port=port,
+        password=password,
+        agent=agent,
+        manager=manager,
+    )
+    actual_host, actual_port = httpd.server_address
+    url = f"http://{actual_host}:{actual_port}"
+
+    auth_msg = " (password protected)" if password else ""
+    console.print(
+        f"[bold magenta]🧵 Tapestry web[/bold magenta] running at "
+        f"[cyan]{url}[/cyan]{auth_msg}"
+    )
+    console.print("[dim]Open the URL above in any browser. Ctrl+C to stop.[/dim]")
+
+    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    server_thread.start()
+
+    if not no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    try:
+        server_thread.join()
+    except KeyboardInterrupt:
+        console.print("\n[dim]Shutting down…[/dim]")
+    finally:
+        manager.stop_daemon()
+        httpd.shutdown()
+        httpd.server_close()
+        manager.stop_all()
 
 
 # ---------------------------------------------------------------------------
