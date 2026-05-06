@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tapestry"
+version = "0.1.0"
+description = "A unified platform that connects apps, CLIs, and terminals with a single persistent AI memory"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.scripts]
+tapestry = "tapestry.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tapestry*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
