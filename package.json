@@ -1,0 +1,18 @@
+{
+  "name": "uipro",
+  "version": "0.1.0",
+  "description": "A platform that connects apps from every platform and terminal CLI in one",
+  "type": "module",
+  "bin": {
+    "uipro": "./bin/uipro"
+  },
+  "exports": "./src/cli.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node bin/uipro"
+  },
+  "keywords": ["cli", "ai", "claude", "cursor", "skills"],
+  "license": "MIT"
+}
