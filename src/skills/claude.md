@@ -10,7 +10,6 @@ uipro is a platform that bridges tools from different CLIs, terminals, and AI as
 
 ```bash
 uipro init --ai claude --global   # Install to ~/.claude/skills/
-uipro init --ai cursor --global   # Install to ~/.cursor/skills/
 uipro --help
 ```
 
@@ -21,12 +20,12 @@ uipro --help
 Install the uipro skill into an AI assistant's skills directory.
 
 ```bash
-uipro init --ai <claude|cursor> [--global]
+uipro init --ai claude [--global]
 ```
 
 **Options:**
-- `--ai` — Target AI assistant (`claude` or `cursor`)
-- `--global` — Install to the home directory (e.g. `~/.claude/skills/`); omit to install into the current project
+- `--ai claude` — Target AI assistant
+- `--global` — Install to the home directory (`~/.claude/skills/`); omit to install into the current project
 
 ## When to invoke this skill
 

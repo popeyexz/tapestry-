@@ -13,7 +13,6 @@ function printHelp() {
   console.log('  init    Install a uipro skill into an AI assistant\n');
   console.log('Examples:');
   console.log('  uipro init --ai claude --global   # Install to ~/.claude/skills/');
-  console.log('  uipro init --ai cursor --global   # Install to ~/.cursor/skills/');
 }
 
 if (!command || command === '--help' || command === '-h') {

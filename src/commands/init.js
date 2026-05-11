@@ -12,11 +12,6 @@ const AI_CONFIGS = {
     skillFile: 'uipro.md',
     templateFile: 'claude.md',
   },
-  cursor: {
-    skillsDir: '.cursor/skills',
-    skillFile: 'uipro.md',
-    templateFile: 'cursor.md',
-  },
 };
 
 export async function initCommand(args) {
@@ -67,8 +62,8 @@ export async function initCommand(args) {
 }
 
 function printInitHelp() {
-  console.log('Usage: uipro init --ai <claude|cursor> [--global]\n');
+  console.log('Usage: uipro init --ai claude [--global]\n');
   console.log('Options:');
-  console.log('  --ai <name>   AI assistant to install for (claude, cursor)');
-  console.log('  --global      Install to home directory (e.g. ~/.claude/skills/)');
+  console.log('  --ai claude   AI assistant to install for');
+  console.log('  --global      Install to home directory (~/.claude/skills/)');
 }
